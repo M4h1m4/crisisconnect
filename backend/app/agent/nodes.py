@@ -22,6 +22,7 @@ def _get_llm():
 
 def classify_intent(state: AgentState) -> dict:
     """Determine what kind of help the user needs."""
+    print(f"[DEBUG] classify_intent called with: {state['user_message']}")
     prompt = (
         "Classify the user's emergency need into exactly ONE category.\n\n"
         "Categories:\n"
@@ -34,7 +35,9 @@ def classify_intent(state: AgentState) -> dict:
         "Respond with ONLY the category name (food/shelter/medical/emergency/general), nothing else."
     )
 
+    print(f"[DEBUG] Calling LLM for intent classification...")
     response = _get_llm().invoke(prompt)
+    print(f"[DEBUG] LLM response received: {response.content[:50]}...")
     intent = response.content.strip().lower()
 
     valid = {"food", "shelter", "medical", "emergency", "general"}

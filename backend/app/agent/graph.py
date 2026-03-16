@@ -38,6 +38,7 @@ def _get_agent():
 
 
 async def run_agent(request: ChatRequest) -> ChatResponse:
+    print(f"[DEBUG] Starting agent with message: {request.message}")
     initial_state: AgentState = {
         "user_message": request.message,
         "user_lat": request.latitude,
@@ -48,7 +49,9 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
         "response": "",
     }
 
+    print(f"[DEBUG] Invoking agent...")
     result = _get_agent().invoke(initial_state)
+    print(f"[DEBUG] Agent invocation complete")
 
     resources = [Resource(**r) for r in result.get("resources", [])]
 
