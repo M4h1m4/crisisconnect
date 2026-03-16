@@ -1,4 +1,4 @@
-import { Message } from "../types";
+import type { Message } from "../types";
 import { ResourceCard } from "./ResourceCard";
 
 export function MessageBubble({ message }: { message: Message }) {

@@ -1,10 +1,11 @@
+import { Component, ReactNode } from "react";
 import {
   APIProvider,
   Map,
   AdvancedMarker,
   Pin,
 } from "@vis.gl/react-google-maps";
-import { Resource } from "../types";
+import type { Resource } from "../types";
 
 const CATEGORY_PIN_COLORS: Record<string, string> = {
   food: "#16a34a",
@@ -19,14 +20,48 @@ interface MapPanelProps {
   userLng: number | null;
 }
 
-export function MapPanel({ resources, userLat, userLng }: MapPanelProps) {
+class MapErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full items-center justify-center bg-gray-100">
+          <p className="text-gray-500">Map unavailable — check your Google Maps API key.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function MapContent({ resources, userLat, userLng }: MapPanelProps) {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+
+  if (!apiKey || apiKey === "your_google_maps_api_key_here") {
+    return (
+      <div className="flex h-full items-center justify-center bg-gray-100">
+        <p className="text-gray-500">
+          Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env to enable the map.
+        </p>
+      </div>
+    );
+  }
+
   const center =
     userLat && userLng
       ? { lat: userLat, lng: userLng }
       : { lat: 37.3352, lng: -121.8811 };
 
   return (
-    <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ""}>
+    <APIProvider apiKey={apiKey}>
       <Map
         defaultCenter={center}
         defaultZoom={14}
@@ -53,5 +88,13 @@ export function MapPanel({ resources, userLat, userLng }: MapPanelProps) {
         ))}
       </Map>
     </APIProvider>
+  );
+}
+
+export function MapPanel(props: MapPanelProps) {
+  return (
+    <MapErrorBoundary>
+      <MapContent {...props} />
+    </MapErrorBoundary>
   );
 }

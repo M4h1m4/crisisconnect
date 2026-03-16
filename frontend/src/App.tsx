@@ -3,7 +3,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { MapPanel } from "./components/MapPanel";
 import { useGeolocation } from "./hooks/useGeolocation";
 import { sendMessage } from "./services/api";
-import { Message, Resource } from "./types";
+import type { Message, Resource } from "./types";
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
