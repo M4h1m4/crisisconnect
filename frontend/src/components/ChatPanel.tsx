@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, MapPin, Loader2 } from "lucide-react";
-import { Message } from "../types";
+import type { Message } from "../types";
 import { MessageBubble } from "./MessageBubble";
 
 interface ChatPanelProps {

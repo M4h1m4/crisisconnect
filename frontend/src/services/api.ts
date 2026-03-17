@@ -1,4 +1,4 @@
-import { ChatResponse } from "../types";
+import type { ChatResponse } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 

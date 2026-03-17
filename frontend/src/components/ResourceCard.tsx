@@ -1,5 +1,5 @@
 import { MapPin } from "lucide-react";
-import { Resource } from "../types";
+import type { Resource } from "../types";
 
 const CATEGORY_COLORS: Record<string, string> = {
   food: "bg-green-100 text-green-800",
