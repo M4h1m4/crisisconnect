@@ -94,7 +94,7 @@ def find_resources(state: AgentState) -> dict:
 
 
 def generate_response(state: AgentState) -> dict:
-    """Generate a helpful, empathetic response with resource information."""
+    """Generate a helpful, direct emergency assistant with resource information."""
     resources = state.get("resources", [])
     intent = state.get("intent", "general")
 
@@ -143,17 +143,19 @@ def generate_response(state: AgentState) -> dict:
         )
 
     prompt = (
-        "You are CrisisConnect, an empathetic emergency resource assistant.\n"
+        "You are CrisisConnect, a direct emergency resource assistant.\n"
         f"The user needs: {intent} resources.\n"
         f'User message: "{state["user_message"]}"\n\n'
-        f"Here are the nearest resources found:\n{resource_text}\n"
-        "Write a brief, caring response (3-5 sentences) that:\n"
-        "1. Acknowledges their situation with empathy\n"
-        "2. Lists the resources with key details\n"
-        "3. Recommends the best option and explains why\n"
-        "4. Gives a clear next step (e.g., walk there, call them)\n\n"
         f"{emergency_note}"
-        "Do NOT use markdown formatting. Use plain text."
+        f"Resources found:\n{resource_text}\n"
+        "Rules:\n"
+        "- Be extremely concise. No filler, no fluff, no preamble.\n"
+        "- Lead with the top recommendation and its address.\n"
+        "- Mention open/closed status if available.\n"
+        "- Give one actionable next step (direction, phone call, etc.).\n"
+        "- List remaining resources briefly (name + address only).\n"
+        "- Do NOT use markdown. Plain text only.\n"
+        "- Maximum 3-4 short lines total."
     )
 
     response = _get_llm().invoke(prompt)
