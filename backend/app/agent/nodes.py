@@ -71,6 +71,33 @@ def analyze_situation(state: AgentState) -> dict:
     }
 
 
+def classify_crisis_intent(state: AgentState) -> dict:
+    """Determine crisis type from vision AI analysis."""
+    print(f"[DEBUG] classify_crisis_intent called with image analysis")
+    prompt = (
+        "Analyze this crisis situation description and classify it into exactly ONE emergency category.\n\n"
+        "Categories:\n"
+        "- fire: smoke, flames, fire, burning, fire hazard\n"
+        "- medical: injured, bleeding, unconscious, sick, accident victim, trauma\n"
+        "- accident: car crash, vehicle collision, traffic accident, hit and run\n"
+        "- emergency: danger, assault, threat, life-threatening, crime in progress\n"
+        "- general: unclear, not an emergency\n\n"
+        f"Crisis description: \"{state['user_message']}\"\n\n"
+        "Respond with ONLY the category name (fire/medical/accident/emergency/general), nothing else."
+    )
+
+    print(f"[DEBUG] Calling LLM for crisis intent classification...")
+    response = _get_llm().invoke(prompt)
+    print(f"[DEBUG] Crisis intent response: {response.content[:50]}...")
+    intent = response.content.strip().lower()
+
+    valid = {"fire", "medical", "accident", "emergency", "general"}
+    if intent not in valid:
+        intent = "emergency"
+
+    return {"intent": intent}
+
+
 def resolve_location(state: AgentState) -> dict:
     """Resolve user location from text if coordinates not provided."""
     if state.get("user_lat") and state.get("user_lng"):

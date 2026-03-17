@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 
 from app.models.schemas import ChatRequest, ChatResponse, ImageCrisisRequest, AuthorityNotification
 
@@ -100,3 +101,41 @@ async def analyze_image(
         "analysis": vision_result["analysis"],
         "model": vision_result["model"],
     }
+
+
+@app.post("/api/crisis/analyze-and-guide", response_model=ChatResponse)
+async def analyze_image_and_guide(
+    image: UploadFile = File(...),
+    latitude: Optional[float] = Form(default=None),
+    longitude: Optional[float] = Form(default=None),
+):
+    """Analyze an image using Vision AI and provide guidance through the agent."""
+    from app.services.vision import analyze_image_with_vision, encode_image_to_base64
+    from app.agent.graph import run_agent_with_context
+    from app.models.schemas import ChatRequest
+
+    image_bytes = await image.read()
+    base64_image = encode_image_to_base64(image_bytes)
+
+    try:
+        vision_result = await analyze_image_with_vision(base64_image, "general")
+    except Exception as e:
+        return ChatResponse(
+            reply=f"Failed to analyze image: {str(e)}",
+            resources=[],
+            user_lat=latitude,
+            user_lng=longitude,
+        )
+
+    analysis = vision_result["analysis"]
+
+    print(f"[DEBUG] Vision analysis: {analysis[:200]}...")
+
+    request = ChatRequest(
+        message=analysis,
+        latitude=latitude,
+        longitude=longitude,
+    )
+
+    result = await run_agent_with_context(request, crisis_context=analysis)
+    return result

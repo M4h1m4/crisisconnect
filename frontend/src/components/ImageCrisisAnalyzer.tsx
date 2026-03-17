@@ -1,45 +1,58 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 
-interface CrisisAnalysis {
-  status: string;
-  analysis: string;
-  model: string;
+interface Props {
+  onAnalyze: (imageFile: File) => void;
+  loading?: boolean;
 }
 
-export function ImageCrisisAnalyzer() {
+export function ImageCrisisAnalyzer({ onAnalyze, loading }: Props) {
   const [image, setImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CrisisAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startCamera = useCallback(async () => {
-    try {
-      let stream;
+    console.log("[Camera] Starting camera...");
+    setError(null);
+    setVideoReady(false);
+    
+    const tryCamera = async (facingMode: string) => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
         });
+        return stream;
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        return null;
       }
-      
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setCameraActive(true);
-      setVideoReady(false);
-      setError(null);
-    } catch (err) {
-      console.error("Camera error:", err);
-      setError("Could not access camera. Please grant camera permissions.");
+    };
+
+    let stream = await tryCamera("environment");
+    console.log("[Camera] Tried environment:", !!stream);
+    if (!stream) stream = await tryCamera("user");
+    console.log("[Camera] Tried user:", !!stream);
+    if (!stream) stream = await tryCamera("true");
+    console.log("[Camera] Tried true:", !!stream);
+
+    if (!stream) {
+      console.log("[Camera] No camera found");
+      setError("No camera found. Please use 'Upload Photo' instead.");
+      return;
     }
+
+    streamRef.current = stream;
+    console.log("[Camera] Stream obtained, attaching to video element");
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      console.log("[Camera] Attached to video element");
+    }
+    setCameraActive(true);
+    console.log("[Camera] Camera active set to true");
   }, []);
 
   const stopCamera = useCallback(() => {
@@ -51,19 +64,17 @@ export function ImageCrisisAnalyzer() {
     setVideoReady(false);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
   const captureImage = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      setError("Camera not ready. Please wait a moment and try again.");
+      return;
+    }
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
@@ -84,52 +95,53 @@ export function ImageCrisisAnalyzer() {
     }
   }, [stopCamera]);
 
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setImage(ev.target?.result as string);
+        setImageFile(file);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
   const retakePhoto = useCallback(() => {
     setImage(null);
     setImageFile(null);
-    setResult(null);
     setError(null);
     startCamera();
   }, [startCamera]);
 
-  const handleAnalyze = useCallback(async () => {
+  const handleAnalyze = useCallback(() => {
     if (!imageFile) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      formData.append("image", imageFile);
-      formData.append("crisis_type", "general");
-      const res = await fetch("http://127.0.0.1:8000/api/crisis/analyze-image", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) throw new Error("Failed to analyze image");
-      const data = await res.json();
-      setResult(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, [imageFile]);
+    onAnalyze(imageFile);
+  }, [imageFile, onAnalyze]);
 
   return (
     <div className="p-4">
       <h2 className="text-xl font-bold mb-3 text-red-600">🚨 Crisis Scanner</h2>
       <p className="text-sm text-gray-600 mb-4">
-        Take a photo of an accident or crisis. AI will analyze what's happening and tell you how to safely navigate away from danger.
+        Take a photo or upload an image of an accident. AI will analyze what's happening and guide you to safety with your location.
       </p>
 
       {/* Camera View */}
       {cameraActive && (
-        <div className="relative mb-4">
+        <div className="mb-4">
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            onLoadedMetadata={() => setVideoReady(true)}
+            onLoadedMetadata={() => {
+              console.log("Metadata loaded, video ready");
+              setVideoReady(true);
+            }}
+            onCanPlay={() => {
+              console.log("Can play");
+              setVideoReady(true);
+            }}
             className="w-full rounded-lg bg-black"
           />
           <div className="mt-2 flex gap-2">
@@ -148,7 +160,7 @@ export function ImageCrisisAnalyzer() {
             </button>
           </div>
           {!videoReady && (
-            <p className="text-center text-yellow-600 text-sm mt-2">Starting camera...</p>
+            <p className="text-center text-yellow-600 text-sm mt-2">Waiting for camera...</p>
           )}
         </div>
       )}
@@ -161,31 +173,46 @@ export function ImageCrisisAnalyzer() {
       )}
 
       <canvas ref={canvasRef} className="hidden" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
 
       {/* Buttons */}
       <div className="space-y-3">
         {!cameraActive && !image && (
-          <button
-            onClick={startCamera}
-            className="w-full py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700"
-          >
-            📷 Take Photo
-          </button>
+          <>
+            <button
+              onClick={startCamera}
+              className="w-full py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700"
+            >
+              📷 Take Photo
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700"
+            >
+              📁 Upload Photo
+            </button>
+          </>
         )}
 
-        {image && !loading && !result && (
+        {image && !loading && (
           <>
             <button
               onClick={handleAnalyze}
               className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700"
             >
-              🔍 Analyze Crisis
+              🔍 Analyze & Get Help
             </button>
             <button
               onClick={retakePhoto}
               className="w-full py-2 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300"
             >
-              Retake Photo
+              Retake / Choose Different
             </button>
           </>
         )}
@@ -194,21 +221,13 @@ export function ImageCrisisAnalyzer() {
       {loading && (
         <div className="mt-4 text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-red-600 border-t-transparent"></div>
-          <p className="mt-2 text-gray-600">Analyzing with AI...</p>
+          <p className="mt-2 text-gray-600">Analyzing image with your location...</p>
         </div>
       )}
 
       {error && (
         <div className="mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
           {error}
-        </div>
-      )}
-
-      {result && (
-        <div className="mt-4 p-4 bg-green-50 border border-green-300 rounded-lg">
-          <h3 className="font-bold text-green-800 mb-2">Analysis Result</h3>
-          <div className="whitespace-pre-wrap text-sm text-gray-800">{result.analysis}</div>
-          <p className="mt-3 text-xs text-gray-500">Powered by: {result.model}</p>
         </div>
       )}
     </div>

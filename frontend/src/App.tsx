@@ -3,7 +3,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { MapPanel } from "./components/MapPanel";
 import { ImageCrisisAnalyzer } from "./components/ImageCrisisAnalyzer";
 import { useGeolocation } from "./hooks/useGeolocation";
-import { sendMessage } from "./services/api";
+import { sendMessage, analyzeImageAndGetGuidance } from "./services/api";
 import type { Message, Resource } from "./types";
 
 export default function App() {
@@ -59,6 +59,41 @@ export default function App() {
     [geo.latitude, geo.longitude]
   );
 
+  const handleAnalyzeWithLocation = useCallback(async (imageFile: File) => {
+    if (!imageFile) return;
+    setLoading(true);
+
+    try {
+      const res = await analyzeImageAndGetGuidance(imageFile, geo.latitude, geo.longitude);
+      
+      const agentMsg: Message = {
+        id: Date.now().toString(),
+        role: "agent",
+        content: res.reply,
+        resources: res.resources,
+      };
+      
+      setMessages((prev) => [...prev, agentMsg]);
+      if (res.resources.length > 0) {
+        setResources(res.resources);
+      }
+      if (res.user_lat && res.user_lng) {
+        setMapCenter({ lat: res.user_lat, lng: res.user_lng });
+      }
+      setActiveTab("chat");
+    } catch (err) {
+      const errMsg: Message = {
+        id: Date.now().toString(),
+        role: "agent",
+        content: err instanceof Error ? err.message : "Failed to analyze image",
+      };
+      setMessages((prev) => [...prev, errMsg]);
+      setActiveTab("chat");
+    } finally {
+      setLoading(false);
+    }
+  }, [geo.latitude, geo.longitude]);
+
   const userLat = mapCenter.lat ?? geo.latitude;
   const userLng = mapCenter.lng ?? geo.longitude;
 
@@ -97,7 +132,10 @@ export default function App() {
           />
         ) : (
           <div className="flex-1 overflow-y-auto">
-            <ImageCrisisAnalyzer />
+            <ImageCrisisAnalyzer 
+              onAnalyze={handleAnalyzeWithLocation} 
+              loading={loading}
+            />
           </div>
         )}
       </div>

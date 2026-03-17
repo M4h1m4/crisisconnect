@@ -6,6 +6,7 @@ from app.agent.nodes import (
     resolve_location,
     find_resources,
     generate_response,
+    classify_crisis_intent,
 )
 from app.models.schemas import ChatRequest, ChatResponse, Resource
 
@@ -27,7 +28,25 @@ def build_graph():
     return graph.compile()
 
 
+def build_crisis_graph():
+    graph = StateGraph(AgentState)
+
+    graph.add_node("classify_intent", classify_crisis_intent)
+    graph.add_node("resolve_location", resolve_location)
+    graph.add_node("find_resources", find_resources)
+    graph.add_node("generate_response", generate_response)
+
+    graph.set_entry_point("classify_intent")
+    graph.add_edge("classify_intent", "resolve_location")
+    graph.add_edge("resolve_location", "find_resources")
+    graph.add_edge("find_resources", "generate_response")
+    graph.add_edge("generate_response", END)
+
+    return graph.compile()
+
+
 _agent = None
+_crisis_agent = None
 
 
 def _get_agent():
@@ -35,6 +54,13 @@ def _get_agent():
     if _agent is None:
         _agent = build_graph()
     return _agent
+
+
+def _get_crisis_agent():
+    global _crisis_agent
+    if _crisis_agent is None:
+        _crisis_agent = build_crisis_graph()
+    return _crisis_agent
 
 
 async def run_agent(request: ChatRequest) -> ChatResponse:
@@ -52,6 +78,32 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
     }
 
     result = _get_agent().invoke(initial_state)
+
+    resources = [Resource(**r) for r in result.get("resources", [])]
+
+    return ChatResponse(
+        reply=result["response"],
+        resources=resources,
+        user_lat=result.get("user_lat"),
+        user_lng=result.get("user_lng"),
+    )
+
+
+async def run_agent_with_context(request: ChatRequest, crisis_context: str = "") -> ChatResponse:
+    print(f"[DEBUG] Starting crisis agent with context: {crisis_context[:100]}...")
+    initial_state: AgentState = {
+        "user_message": crisis_context,
+        "user_lat": request.latitude,
+        "user_lng": request.longitude,
+        "intent": "",
+        "location_resolved": False,
+        "resources": [],
+        "response": "",
+    }
+
+    print(f"[DEBUG] Invoking crisis agent...")
+    result = _get_crisis_agent().invoke(initial_state)
+    print(f"[DEBUG] Crisis agent invocation complete")
 
     resources = [Resource(**r) for r in result.get("resources", [])]
 
