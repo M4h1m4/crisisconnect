@@ -12,31 +12,26 @@ def _get_client():
     return _client
 
 
-CATEGORY_QUERIES = {
-    "food": ["food bank", "community kitchen", "soup kitchen", "free meals"],
-    "shelter": ["homeless shelter", "emergency shelter", "temporary housing"],
-    "medical": ["hospital", "urgent care", "clinic", "emergency room"],
-    "emergency": ["police station", "fire station"],
-}
-
-
-def search_nearby_resources(
+def search_by_queries(
     latitude: float,
     longitude: float,
-    category: str,
+    queries: list[str],
+    category: str = "general",
     radius_meters: int = 5000,
 ) -> list[Resource]:
-    """Search for nearby emergency resources using Google Places API."""
+    """Search for nearby resources using LLM-generated search queries."""
     resources = []
-    queries = CATEGORY_QUERIES.get(category, [category])
 
-    for query in queries:
-        results = _get_client().places_nearby(
-            location=(latitude, longitude),
-            radius=radius_meters,
-            keyword=query,
-            open_now=False,
-        )
+    for query in queries[:4]:
+        try:
+            results = _get_client().places_nearby(
+                location=(latitude, longitude),
+                radius=radius_meters,
+                keyword=query,
+                open_now=False,
+            )
+        except Exception:
+            continue
 
         for place in results.get("results", [])[:3]:
             loc = place["geometry"]["location"]
@@ -60,4 +55,4 @@ def search_nearby_resources(
             seen.add(r.place_id)
             unique.append(r)
 
-    return unique[:5]
+    return unique[:6]

@@ -1,8 +1,9 @@
+import json
 from langchain_openai import ChatOpenAI
 from app.config import settings
 from app.agent.state import AgentState
 from app.tools.google_geocode import geocode_location
-from app.tools.google_places import search_nearby_resources
+from app.tools.google_places import search_by_queries
 
 _llm = None
 
@@ -20,31 +21,54 @@ def _get_llm():
     return _llm
 
 
-def classify_intent(state: AgentState) -> dict:
-    """Determine what kind of help the user needs."""
-    print(f"[DEBUG] classify_intent called with: {state['user_message']}")
+def analyze_situation(state: AgentState) -> dict:
+    """Analyze the user's crisis and determine what resources to search for."""
     prompt = (
-        "Classify the user's emergency need into exactly ONE category.\n\n"
-        "Categories:\n"
-        "- food: hungry, need food, haven't eaten, food bank\n"
-        "- shelter: need a place to sleep, homeless, need housing, cold outside\n"
-        "- medical: sick, injured, dizzy, fainted, bleeding, need doctor\n"
-        "- emergency: in danger, assault, fire, someone collapsed, life-threatening\n"
-        "- general: greeting, question, unclear need\n\n"
+        "You are a crisis assessment AI. Analyze the user's message and determine:\n"
+        "1. What category of crisis this is\n"
+        "2. How urgent it is\n"
+        "3. What Google Maps search queries would find helpful nearby resources\n"
+        "4. Any immediate advice to give RIGHT NOW before finding resources\n\n"
+        "Respond in STRICT JSON format (no markdown, no backticks):\n"
+        "{\n"
+        '  "category": "short label like food, shelter, medical, financial, legal, automotive, safety, general",\n'
+        '  "urgency": "critical or high or medium or low",\n'
+        '  "search_queries": ["query1", "query2", "query3"],\n'
+        '  "immediate_advice": "One urgent action to take right now, or empty string if none"\n'
+        "}\n\n"
+        "Examples:\n"
+        '- "I\'m hungry" → {"category": "food", "urgency": "high", "search_queries": ["food bank", "community kitchen", "soup kitchen"], "immediate_advice": ""}\n'
+        '- "My wallet was stolen" → {"category": "financial", "urgency": "high", "search_queries": ["police station", "bank branch"], "immediate_advice": "Call your bank immediately to freeze your cards."}\n'
+        '- "My car broke down" → {"category": "automotive", "urgency": "medium", "search_queries": ["auto repair shop", "tow truck service", "gas station"], "immediate_advice": "Turn on your hazard lights and move to a safe spot if possible."}\n'
+        '- "Someone is having a seizure" → {"category": "medical", "urgency": "critical", "search_queries": ["hospital", "emergency room", "urgent care"], "immediate_advice": "Call 911 immediately. Do not restrain the person. Clear the area around them."}\n\n'
         f'User message: "{state["user_message"]}"\n\n'
-        "Respond with ONLY the category name (food/shelter/medical/emergency/general), nothing else."
+        "Respond with ONLY the JSON object, nothing else."
     )
 
-    print(f"[DEBUG] Calling LLM for intent classification...")
     response = _get_llm().invoke(prompt)
-    print(f"[DEBUG] LLM response received: {response.content[:50]}...")
-    intent = response.content.strip().lower()
+    raw = response.content.strip()
 
-    valid = {"food", "shelter", "medical", "emergency", "general"}
-    if intent not in valid:
-        intent = "general"
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        raw = raw.rsplit("```", 1)[0]
+        raw = raw.strip()
 
-    return {"intent": intent}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {
+            "category": "general",
+            "urgency": "low",
+            "search_queries": [],
+            "immediate_advice": "",
+        }
+
+    return {
+        "category": parsed.get("category", "general"),
+        "urgency": parsed.get("urgency", "medium"),
+        "search_queries": parsed.get("search_queries", [])[:4],
+        "immediate_advice": parsed.get("immediate_advice", ""),
+    }
 
 
 def resolve_location(state: AgentState) -> dict:
@@ -77,51 +101,52 @@ def resolve_location(state: AgentState) -> dict:
 
 
 def find_resources(state: AgentState) -> dict:
-    """Search for nearby resources based on intent and location."""
+    """Search for nearby resources using LLM-generated queries."""
     if not state.get("location_resolved") or not state.get("user_lat"):
         return {"resources": []}
 
-    if state["intent"] == "general":
+    queries = state.get("search_queries", [])
+    if not queries:
         return {"resources": []}
 
-    resources = search_nearby_resources(
+    resources = search_by_queries(
         latitude=state["user_lat"],
         longitude=state["user_lng"],
-        category=state["intent"],
+        queries=queries,
+        category=state.get("category", "general"),
     )
 
     return {"resources": [r.model_dump() for r in resources]}
 
 
 def generate_response(state: AgentState) -> dict:
-    """Generate a helpful, direct emergency assistant with resource information."""
+    """Generate a helpful response with resource information and immediate advice."""
     resources = state.get("resources", [])
-    intent = state.get("intent", "general")
+    category = state.get("category", "general")
+    urgency = state.get("urgency", "medium")
+    immediate_advice = state.get("immediate_advice", "")
 
     if not state.get("location_resolved"):
+        prefix = ""
+        if immediate_advice:
+            prefix = f"URGENT: {immediate_advice}\n\n"
         return {
             "response": (
-                "I want to help you find resources nearby. "
+                f"{prefix}"
+                "I also want to help you find resources nearby. "
                 "Could you share your location? You can either click the "
                 "location button or tell me where you are (e.g., 'near SJSU')."
             )
         }
 
-    if intent == "general":
-        prompt = (
-            "You are CrisisConnect, an empathetic emergency resource assistant.\n"
-            f'The user sent: "{state["user_message"]}"\n'
-            "Respond helpfully. Let them know you can help find food, shelter, "
-            "medical care, or emergency services.\n"
-            "Keep it brief and warm (2-3 sentences)."
-        )
-        response = _get_llm().invoke(prompt)
-        return {"response": response.content}
-
     if not resources:
+        fallback = ""
+        if immediate_advice:
+            fallback = f"{immediate_advice}\n\n"
         return {
             "response": (
-                f"I wasn't able to find {intent} resources near your location. "
+                f"{fallback}"
+                f"I wasn't able to find {category} resources near your location. "
                 "Try sharing a more specific location, or call 211 for local resource referrals."
             )
         }
@@ -135,27 +160,34 @@ def generate_response(state: AgentState) -> dict:
             status = " | Currently closed"
         resource_text += f"{i}. {r['name']} — {r['address']}{status}\n"
 
-    emergency_note = ""
-    if intent in ("medical", "emergency"):
-        emergency_note = (
-            "IMPORTANT: If this is a medical emergency or someone is in danger, "
-            "start by telling them to call 911 immediately.\n"
+    urgency_instruction = ""
+    if urgency == "critical":
+        urgency_instruction = (
+            "This is CRITICAL. Lead with the most urgent action (call 911, etc). "
+            "Be direct and commanding.\n"
         )
+    elif urgency == "high":
+        urgency_instruction = "This is urgent. Be direct and action-oriented.\n"
+
+    advice_section = ""
+    if immediate_advice:
+        advice_section = f"Immediate advice to include: {immediate_advice}\n"
 
     prompt = (
-        "You are CrisisConnect, a direct emergency resource assistant.\n"
-        f"The user needs: {intent} resources.\n"
+        "You are CrisisConnect, a direct crisis resource assistant.\n"
+        f"Situation: {category} (urgency: {urgency})\n"
         f'User message: "{state["user_message"]}"\n\n'
-        f"{emergency_note}"
-        f"Resources found:\n{resource_text}\n"
+        f"{urgency_instruction}"
+        f"{advice_section}"
+        f"Resources found nearby:\n{resource_text}\n"
         "Rules:\n"
-        "- Be extremely concise. No filler, no fluff, no preamble.\n"
-        "- Lead with the top recommendation and its address.\n"
+        "- If there is immediate advice, state it FIRST.\n"
+        "- Then recommend the top resource with its address.\n"
         "- Mention open/closed status if available.\n"
-        "- Give one actionable next step (direction, phone call, etc.).\n"
-        "- List remaining resources briefly (name + address only).\n"
-        "- Do NOT use markdown. Plain text only.\n"
-        "- Maximum 3-4 short lines total."
+        "- Give one actionable next step.\n"
+        "- List remaining resources briefly.\n"
+        "- Be concise. No filler. Plain text only. No markdown.\n"
+        "- Maximum 5 short lines total."
     )
 
     response = _get_llm().invoke(prompt)
