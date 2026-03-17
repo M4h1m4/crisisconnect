@@ -109,17 +109,17 @@ async def analyze_image_and_guide(
     latitude: Optional[float] = Form(default=None),
     longitude: Optional[float] = Form(default=None),
 ):
-    """Analyze an image using Vision AI and provide guidance through the agent."""
+    """Analyze an image using Vision AI and provide guidance with resources."""
     from app.services.vision import analyze_image_with_vision, encode_image_to_base64
-    from app.agent.graph import run_agent_with_context
-    from app.models.schemas import ChatRequest
 
     image_bytes = await image.read()
     base64_image = encode_image_to_base64(image_bytes)
 
+    print(f"[DEBUG] Starting vision analysis...")
     try:
         vision_result = await analyze_image_with_vision(base64_image, "general")
     except Exception as e:
+        print(f"[DEBUG] Vision error: {e}")
         return ChatResponse(
             reply=f"Failed to analyze image: {str(e)}",
             resources=[],
@@ -128,14 +128,37 @@ async def analyze_image_and_guide(
         )
 
     analysis = vision_result["analysis"]
+    print(f"[DEBUG] Vision analysis complete")
 
-    print(f"[DEBUG] Vision analysis: {analysis[:200]}...")
+    # Create a prompt that includes the analysis and asks for resources
+    prompt = f"""The user has shared an image of an emergency situation. Here is the AI visual analysis:
+
+{analysis}
+
+Based on this crisis situation, provide:
+1. Immediate safety actions
+2. Emergency resources nearby (use the location if provided: {latitude}, {longitude})
+3. How to navigate to safety"""
+
+    from app.agent.graph import run_agent
+    from app.models.schemas import ChatRequest
 
     request = ChatRequest(
-        message=analysis,
+        message=prompt,
         latitude=latitude,
         longitude=longitude,
     )
 
-    result = await run_agent_with_context(request, crisis_context=analysis)
-    return result
+    print(f"[DEBUG] Calling agent for resources...")
+    try:
+        result = await run_agent(request)
+        print(f"[DEBUG] Agent result received")
+        return result
+    except Exception as e:
+        print(f"[DEBUG] Agent error: {e}")
+        return ChatResponse(
+            reply=f"AI Analysis:\n{analysis}\n\nNote: Could not fetch nearby resources: {str(e)}",
+            resources=[],
+            user_lat=latitude,
+            user_lng=longitude,
+        )

@@ -1,6 +1,9 @@
 import base64
 import httpx
 from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 async def analyze_image_with_vision(image_data: str, crisis_type: str = "general") -> dict:
@@ -32,29 +35,46 @@ Be concise but thorough. Focus on life-safety first."""
         }
     ]
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{settings.openrouter_base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.openrouter_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": settings.vision_model_name,
-                "messages": messages,
-                "max_tokens": 1024,
-            }
-        )
+    logger.info(f"[Vision] Calling OpenRouter with model: {settings.vision_model_name}")
+    
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(
+                f"{settings.openrouter_base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openrouter_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings.vision_model_name,
+                    "messages": messages,
+                    "max_tokens": 1024,
+                }
+            )
 
-    if response.status_code != 200:
-        error = response.json()
-        raise Exception(f"Vision API error: {error}")
+        logger.info(f"[Vision] Response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            error = response.text
+            logger.error(f"[Vision] API error: {error}")
+            raise Exception(f"Vision API error: {error}")
 
-    result = response.json()
-    return {
-        "analysis": result["choices"][0]["message"]["content"],
-        "model": settings.vision_model_name,
-    }
+        result = response.json()
+        
+        if "choices" not in result:
+            logger.error(f"[Vision] No choices in response: {result}")
+            raise Exception(f"Invalid response from Vision API: {result}")
+        
+        analysis = result["choices"][0]["message"]["content"]
+        logger.info(f"[Vision] Analysis received: {analysis[:100]}...")
+        
+        return {
+            "analysis": analysis,
+            "model": settings.vision_model_name,
+        }
+    except Exception as e:
+        logger.error(f"[Vision] Exception: {str(e)}")
+        raise
 
 
 def encode_image_to_base64(image_bytes: bytes) -> str:
