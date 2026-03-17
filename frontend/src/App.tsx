@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { ChatPanel } from "./components/ChatPanel";
 import { MapPanel } from "./components/MapPanel";
+import { ImageCrisisAnalyzer } from "./components/ImageCrisisAnalyzer";
 import { useGeolocation } from "./hooks/useGeolocation";
 import { sendMessage } from "./services/api";
 import type { Message, Resource } from "./types";
@@ -13,6 +14,7 @@ export default function App() {
     lat: number | null;
     lng: number | null;
   }>({ lat: null, lng: null });
+  const [activeTab, setActiveTab] = useState<"chat" | "crisis">("chat");
 
   const geo = useGeolocation();
 
@@ -62,14 +64,42 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <div className="w-[420px] flex-shrink-0 border-r bg-white">
-        <ChatPanel
-          messages={messages}
-          onSend={handleSend}
-          loading={loading}
-          onLocate={geo.requestLocation}
-          locationReady={!!geo.latitude}
-        />
+      <div className="w-[420px] flex-shrink-0 border-r bg-white flex flex-col">
+        <div className="flex border-b">
+          <button
+            onClick={() => setActiveTab("chat")}
+            className={`flex-1 py-3 font-medium ${
+              activeTab === "chat"
+                ? "border-b-2 border-blue-500 text-blue-600"
+                : "text-gray-500"
+            }`}
+          >
+            💬 Chat
+          </button>
+          <button
+            onClick={() => setActiveTab("crisis")}
+            className={`flex-1 py-3 font-medium ${
+              activeTab === "crisis"
+                ? "border-b-2 border-red-500 text-red-600"
+                : "text-gray-500"
+            }`}
+          >
+            🚨 Crisis Scan
+          </button>
+        </div>
+        {activeTab === "chat" ? (
+          <ChatPanel
+            messages={messages}
+            onSend={handleSend}
+            loading={loading}
+            onLocate={geo.requestLocation}
+            locationReady={!!geo.latitude}
+          />
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <ImageCrisisAnalyzer />
+          </div>
+        )}
       </div>
       <div className="flex-1">
         <MapPanel
